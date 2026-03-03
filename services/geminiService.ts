@@ -1,11 +1,19 @@
-import { GoogleGenAI, Type, Chat } from "@google/genai";
 import { FileNode, ConceptBundle, Project } from "../types";
-import { AI_CONFIG, STORAGE_KEYS } from "../constants";
+import { AI_CONFIG } from "../constants";
 
-const getAiClient = () => {
-    const key = localStorage.getItem(STORAGE_KEYS.API_KEY) || localStorage.getItem('user_gemini_key');
-    if (!key) throw new Error("API_KEY_MISSING: Please restart the session and enter your API key.");
-    return new GoogleGenAI({ apiKey: key });
+const callAiProxy = async (model: string, contents: any, config?: any) => {
+  const response = await fetch("/api/ai/generate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ model, contents, config })
+  });
+  
+  if (!response.ok) {
+    const errorData = await response.json();
+    throw new Error(errorData.error || "AI Proxy Error");
+  }
+  
+  return await response.json();
 };
 
 const cleanAndParseJSON = (text: string) => {
@@ -204,26 +212,17 @@ export const generateAIInsights = async (
   files: FileNode[]
 ): Promise<{ summary: string; aiContext: string; concepts: ConceptBundle[]; schematicMap: string; folderMap: string }> => {
   
-  const ai = getAiClient();
   const model = AI_CONFIG.FAST_MODEL; 
   const fileTree = files.slice(0, 150).map(f => f.path).join('\n');
   const contextInput = `Structure:\n${fileTree}\n\nContent:\n${flattenedCode.substring(0, 500000)}`;
 
   const runTask = async (prompt: string, config?: any) => {
     try {
-        const response = await ai.models.generateContent({
-          model,
-          contents: [{ parts: [{ text: prompt }, { text: contextInput }] }],
-          config
-        });
+        const response = await callAiProxy(model, [{ parts: [{ text: prompt }, { text: contextInput }] }], config);
         return response.text || "";
     } catch (e) {
         console.warn("Primary model failed, trying fallback...", e);
-        const fallbackResponse = await ai.models.generateContent({
-            model: AI_CONFIG.FALLBACK_MODEL,
-            contents: [{ parts: [{ text: prompt }, { text: contextInput }] }],
-            config
-        });
+        const fallbackResponse = await callAiProxy(AI_CONFIG.FALLBACK_MODEL, [{ parts: [{ text: prompt }, { text: contextInput }] }], config);
         return fallbackResponse.text || "";
     }
   };
@@ -233,19 +232,7 @@ export const generateAIInsights = async (
     runTask(PROMPT_CONTEXT),
     runTask(PROMPT_MAP),
     runTask(PROMPT_CONCEPTS, {
-      responseMimeType: "application/json",
-      responseSchema: {
-        type: Type.ARRAY,
-        items: {
-          type: Type.OBJECT,
-          properties: {
-            id: { type: Type.STRING },
-            name: { type: Type.STRING },
-            description: { type: Type.STRING }
-          },
-          required: ["id", "name", "description"]
-        }
-      }
+      responseMimeType: "application/json"
     })
   ]);
 
@@ -290,15 +277,10 @@ export const scanProjectForSecrets = async (files: FileNode[]): Promise<any[]> =
 };
 
 export const auditProject = async (files: FileNode[]): Promise<any[]> => {
-  const ai = getAiClient();
   const model = AI_CONFIG.FAST_MODEL;
   const codebase = files.map(f => `FILE: ${f.path}\nCONTENT:\n${f.content}`).join('\n\n');
   
-  const response = await ai.models.generateContent({
-    model,
-    contents: [{ parts: [{ text: PROMPT_WORKBENCH_AUDIT }, { text: codebase.substring(0, 500000) }] }],
-    config: { responseMimeType: "application/json" }
-  });
+  const response = await callAiProxy(model, [{ parts: [{ text: PROMPT_WORKBENCH_AUDIT }, { text: codebase.substring(0, 500000) }] }], { responseMimeType: "application/json" });
   
   try {
     return cleanAndParseJSON(response.text || "[]");
@@ -308,15 +290,10 @@ export const auditProject = async (files: FileNode[]): Promise<any[]> => {
 };
 
 export const runEnvGuardScan = async (files: FileNode[]): Promise<any> => {
-  const ai = getAiClient();
   const model = AI_CONFIG.FAST_MODEL;
   const codebase = files.map(f => `FILE: ${f.path}\nCONTENT:\n${f.content}`).join('\n\n');
   
-  const response = await ai.models.generateContent({
-    model,
-    contents: [{ parts: [{ text: PROMPT_ENV_GUARD }, { text: codebase.substring(0, 500000) }] }],
-    config: { responseMimeType: "application/json" }
-  });
+  const response = await callAiProxy(model, [{ parts: [{ text: PROMPT_ENV_GUARD }, { text: codebase.substring(0, 500000) }] }], { responseMimeType: "application/json" });
   
   try {
     return cleanAndParseJSON(response.text || "{}");
@@ -326,15 +303,10 @@ export const runEnvGuardScan = async (files: FileNode[]): Promise<any> => {
 };
 
 export const runDependencyGuardianScan = async (files: FileNode[]): Promise<any> => {
-  const ai = getAiClient();
   const model = AI_CONFIG.FAST_MODEL;
   const codebase = files.map(f => `FILE: ${f.path}\nCONTENT:\n${f.content}`).join('\n\n');
   
-  const response = await ai.models.generateContent({
-    model,
-    contents: [{ parts: [{ text: PROMPT_DEPENDENCY_GUARDIAN }, { text: codebase.substring(0, 500000) }] }],
-    config: { responseMimeType: "application/json" }
-  });
+  const response = await callAiProxy(model, [{ parts: [{ text: PROMPT_DEPENDENCY_GUARDIAN }, { text: codebase.substring(0, 500000) }] }], { responseMimeType: "application/json" });
   
   try {
     return cleanAndParseJSON(response.text || "{}");
@@ -344,15 +316,10 @@ export const runDependencyGuardianScan = async (files: FileNode[]): Promise<any>
 };
 
 export const detectProjectStructure = async (files: FileNode[]): Promise<any> => {
-  const ai = getAiClient();
   const model = AI_CONFIG.FAST_MODEL;
   const fileTree = files.slice(0, 100).map(f => f.path).join('\n');
   
-  const response = await ai.models.generateContent({
-    model,
-    contents: [{ parts: [{ text: PROMPT_SCAFFOLD_DETECT }, { text: `File Tree:\n${fileTree}` }] }],
-    config: { responseMimeType: "application/json" }
-  });
+  const response = await callAiProxy(model, [{ parts: [{ text: PROMPT_SCAFFOLD_DETECT }, { text: `File Tree:\n${fileTree}` }] }], { responseMimeType: "application/json" });
   
   try {
     return cleanAndParseJSON(response.text || "{}");
@@ -362,18 +329,13 @@ export const detectProjectStructure = async (files: FileNode[]): Promise<any> =>
 };
 
 export const generateScaffold = async (feature: string, files: FileNode[], context: any): Promise<any> => {
-  const ai = getAiClient();
   const model = AI_CONFIG.FAST_MODEL;
   const fileTree = files.slice(0, 100).map(f => f.path).join('\n');
   const prompt = PROMPT_SCAFFOLD_GENERATE
     .replace("{{FEATURE}}", feature)
     .replace("{{CONTEXT}}", JSON.stringify(context));
 
-  const response = await ai.models.generateContent({
-    model,
-    contents: [{ parts: [{ text: prompt }, { text: `Current Structure:\n${fileTree}` }] }],
-    config: { responseMimeType: "application/json" }
-  });
+  const response = await callAiProxy(model, [{ parts: [{ text: prompt }, { text: `Current Structure:\n${fileTree}` }] }], { responseMimeType: "application/json" });
 
   try {
     return cleanAndParseJSON(response.text || "{}");
@@ -386,21 +348,16 @@ export const recreateFeatureContext = async (
   flattenedCode: string,
   selectedConcepts: ConceptBundle[]
 ): Promise<string> => {
-  const ai = getAiClient();
   const model = AI_CONFIG.SMART_MODEL;
   const conceptNames = selectedConcepts.map(c => c.name).join(", ");
   const prompt = PROMPT_RECREATOR.replace("{{CONCEPTS}}", conceptNames);
   
-  const response = await ai.models.generateContent({
-    model,
-    contents: [{ parts: [{ text: prompt }, { text: `Context:\n${flattenedCode.substring(0, 500000)}` }] }]
-  });
+  const response = await callAiProxy(model, [{ parts: [{ text: prompt }, { text: `Context:\n${flattenedCode.substring(0, 500000)}` }] }]);
   return response.text || "Failed to generate blueprint.";
 };
 
-export const startCodebaseChat = (currentProject: Project, otherProjects: Project[]): Chat => {
-  const ai = getAiClient();
-
+export const startCodebaseChat = (currentProject: Project, otherProjects: Project[]): any => {
+  const model = AI_CONFIG.SMART_MODEL;
   let fullContext = `Current Project [${currentProject.name}] Source:\n${currentProject.outputs.flattened.substring(0, 400000)}\n\n`;
 
   if (currentProject.knowledgeBridgeEnabled) {
@@ -413,10 +370,22 @@ export const startCodebaseChat = (currentProject: Project, otherProjects: Projec
     }
   }
 
-  return ai.chats.create({
-    model: AI_CONFIG.SMART_MODEL,
-    config: {
-      systemInstruction: `You are a Codebase Intelligence Assistant. Answer technical questions based on the provided source code context.\n\nContext:\n${fullContext}`
+  const systemInstruction = `You are a Codebase Intelligence Assistant. Answer technical questions based on the provided source code context.\n\nContext:\n${fullContext}`;
+  const history: any[] = [];
+
+  return {
+    sendMessage: async ({ message }: { message: string }) => {
+      const contents = [
+        ...history,
+        { role: "user", parts: [{ text: message }] }
+      ];
+      
+      const response = await callAiProxy(model, contents, { systemInstruction });
+      
+      history.push({ role: "user", parts: [{ text: message }] });
+      history.push({ role: "model", parts: [{ text: response.text }] });
+      
+      return response;
     }
-  });
+  };
 };

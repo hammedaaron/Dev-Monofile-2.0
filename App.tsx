@@ -23,6 +23,26 @@ const App: React.FC = () => {
   };
   
   useEffect(() => {
+    const checkServerConfig = async () => {
+      try {
+        const response = await fetch("/api/ai/health");
+        if (response.ok) {
+          const data = await response.json();
+          if (data.configured) {
+            // If server has a key, we can auto-login if we have a session
+            const sessionRaw = localStorage.getItem('monofile_auth_token');
+            if (sessionRaw) {
+               setRoute('app');
+            }
+            return;
+          }
+        }
+      } catch (e) {
+        console.warn("Server config check failed");
+      }
+    };
+    checkServerConfig();
+
     // 1. Check for API Key (Persistence Layer)
     const apiKey = localStorage.getItem('user_gemini_key') || localStorage.getItem('monofile_k_sec');
     

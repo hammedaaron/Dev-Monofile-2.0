@@ -9,8 +9,24 @@ interface AuthProps {
 const Auth: React.FC<AuthProps> = ({ onSuccess, onBack }) => {
   const [apiKey, setApiKey] = useState('');
   const [loading, setLoading] = useState(false);
+  const [serverConfigured, setServerConfigured] = useState(false);
 
   useEffect(() => {
+    const checkHealth = async () => {
+      try {
+        const response = await fetch("/api/ai/health");
+        if (response.ok) {
+          const data = await response.json();
+          if (data.configured) {
+            setServerConfigured(true);
+          }
+        }
+      } catch (e) {
+        console.warn("Server health check failed, falling back to BYOK mode.");
+      }
+    };
+    checkHealth();
+
     // Check both new and old storage keys for seamless migration
     const storedKey = localStorage.getItem(STORAGE_KEYS.API_KEY) || localStorage.getItem('user_gemini_key');
     if (storedKey) {
@@ -22,6 +38,15 @@ const Auth: React.FC<AuthProps> = ({ onSuccess, onBack }) => {
     e.preventDefault();
     setLoading(true);
     
+    // If server is configured, we can proceed even without a key
+    if (serverConfigured) {
+      setTimeout(() => {
+        setLoading(false);
+        onSuccess();
+      }, 800);
+      return;
+    }
+
     // Basic validation of the API Key structure
     if (apiKey.trim().startsWith('AIza') && apiKey.trim().length > 20) {
       localStorage.setItem(STORAGE_KEYS.API_KEY, apiKey.trim());
@@ -57,43 +82,52 @@ const Auth: React.FC<AuthProps> = ({ onSuccess, onBack }) => {
             <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-indigo-400"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3L15.5 7.5z"/></svg>
           </div>
           <h1 className="text-3xl font-black text-white mb-2 tracking-tighter uppercase">Monofile</h1>
-          <p className="text-zinc-500 text-sm font-medium">Bring Your Own Key (BYOK)</p>
+          <p className="text-zinc-500 text-sm font-medium">{serverConfigured ? "Server-Managed Intelligence" : "Bring Your Own Key (BYOK)"}</p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-8">
-          <div className="space-y-3">
-            <div className="flex justify-between items-end px-1">
-              <label className="block text-[10px] font-black text-zinc-500 uppercase tracking-[0.2em]">Gemini API Key</label>
-              <a 
-                href="https://aistudio.google.com/app/apikey" 
-                target="_blank" 
-                rel="noopener noreferrer"
-                className="text-[9px] font-black text-indigo-400 hover:text-white transition-colors uppercase tracking-widest underline underline-offset-4"
-              >
-                Get Free Key
-              </a>
+          {!serverConfigured && (
+            <div className="space-y-3">
+              <div className="flex justify-between items-end px-1">
+                <label className="block text-[10px] font-black text-zinc-500 uppercase tracking-[0.2em]">Gemini API Key</label>
+                <a 
+                  href="https://aistudio.google.com/app/apikey" 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="text-[9px] font-black text-indigo-400 hover:text-white transition-colors uppercase tracking-widest underline underline-offset-4"
+                >
+                  Get Free Key
+                </a>
+              </div>
+              <div className="relative">
+                <input 
+                  type="password" 
+                  required 
+                  value={apiKey}
+                  onChange={(e) => setApiKey(e.target.value)}
+                  className="w-full bg-black border border-zinc-800 rounded-2xl px-6 py-4 text-white placeholder-zinc-800 focus:outline-none focus:border-indigo-500 transition-all text-sm font-mono shadow-inner"
+                  placeholder="AIzaSy..."
+                />
+              </div>
+              <p className="text-[10px] text-zinc-600 leading-relaxed px-1">
+                Your key is stored locally. {apiKey.length > 10 ? <span className="text-emerald-500 font-bold">Key found in storage.</span> : "Entering a key will save it for future sessions."}
+              </p>
             </div>
-            <div className="relative">
-              <input 
-                type="password" 
-                required 
-                value={apiKey}
-                onChange={(e) => setApiKey(e.target.value)}
-                className="w-full bg-black border border-zinc-800 rounded-2xl px-6 py-4 text-white placeholder-zinc-800 focus:outline-none focus:border-indigo-500 transition-all text-sm font-mono shadow-inner"
-                placeholder="AIzaSy..."
-              />
+          )}
+
+          {serverConfigured && (
+            <div className="p-6 bg-indigo-500/5 border border-indigo-500/10 rounded-2xl text-center">
+               <p className="text-[10px] font-black text-indigo-400 uppercase tracking-widest mb-2">Secure Connection Active</p>
+               <p className="text-zinc-500 text-[10px] font-bold uppercase tracking-tight leading-relaxed">The environment is pre-configured with server-side intelligence. No local key required.</p>
             </div>
-            <p className="text-[10px] text-zinc-600 leading-relaxed px-1">
-              Your key is stored locally. {apiKey.length > 10 ? <span className="text-emerald-500 font-bold">Key found in storage.</span> : "Entering a key will save it for future sessions."}
-            </p>
-          </div>
+          )}
 
           <button 
             type="submit" 
             disabled={loading}
             className={`w-full py-5 bg-white text-black font-black uppercase tracking-[0.2em] text-xs rounded-2xl hover:bg-zinc-200 transition-all shadow-xl shadow-white/5 ${loading ? 'opacity-70 cursor-wait' : 'active:scale-95'}`}
           >
-            {loading ? 'Initializing...' : (apiKey.length > 20 ? 'Continue to Environment' : 'Authorize Environment')}
+            {loading ? 'Initializing...' : (serverConfigured ? 'Enter Workspace' : (apiKey.length > 20 ? 'Continue to Environment' : 'Authorize Environment'))}
           </button>
         </form>
 
